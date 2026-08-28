@@ -1,0 +1,49 @@
+# Python & Virtualenv
+.venv/
+env/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Pytest & Cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Dataset, Checkpoints & Training Artifacts
+finetuning/data/
+finetuning/ref_clips/
+finetuning/ckpts/
+finetuning/*.executed.ipynb
+finetuning/speaker_table.csv
+data/
+ckpts/
+runs/
+wandb/
+
+# Binary voice models and weights (Piper ONNX / F5-TTS)
+voices/*.onnx
+voices/*.safetensors
+voices/*.pt
+voices/*.wav
+!voices/.gitkeep
+!voices/voices_catalog.csv
+!voices/download_voices.py
+
+# Audio test outputs
+*.wav
+*.mp3
+preview_voice_*.wav
+
+# Temp & Mounts
+mnt/
+
+
+# System & IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

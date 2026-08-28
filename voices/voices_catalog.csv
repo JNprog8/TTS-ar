@@ -1,0 +1,7 @@
+voice_id,gender,name,description
+0,female,daniela,"Paciente Femenina Adulta (Voz clara, tono medio)"
+1,male,martin,"Paciente Masculino Adulto (Voz masculina natural, tono medio-grave)"
+2,female,marta,"Paciente Femenina Anciana / Adulta Mayor (Tono suave, ritmo pausado)"
+3,male,roberto,"Paciente Masculino Anciano / Adulto Mayor (Tono grave, habla pausada y carrasposa)"
+4,female,sofia,"Paciente Femenina Joven (Tono ágil, timbre claro)"
+5,male,lucas,"Paciente Masculino Joven (Tono juvenil, ritmo dinámico)"
