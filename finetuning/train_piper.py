@@ -350,6 +350,7 @@ def parse_args():
     parser.add_argument("--save_step", type=int, default=5, help="Guardar checkpoint cada N épocas")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Dispositivo (cuda / cpu)")
     parser.add_argument("--export_onnx", action="store_true", default=True, help="Exportar a ONNX al finalizar")
+    parser.add_argument("--export_target", type=Path, default=None, help="Ruta personalizada para exportar el modelo ONNX final")
     parser.add_argument("--resume", type=Path, default=None, help="Ruta a checkpoint para reanudar")
     return parser.parse_args()
 
@@ -436,6 +437,15 @@ def train(args):
         pin_memory=(args.device == "cuda"),
     )
 
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=collate_piper_batch,
+        num_workers=0,
+        pin_memory=(args.device == "cuda"),
+    )
+
     device = torch.device(args.device)
     model = PiperVITSModel(num_symbols=NUM_SYMBOLS).to(device)
     disc = MultiPeriodDiscriminator().to(device)
@@ -444,10 +454,12 @@ def train(args):
     optim_g = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.8, 0.99), weight_decay=0.01)
     optim_d = torch.optim.AdamW(disc.parameters(), lr=args.lr, betas=(0.8, 0.99), weight_decay=0.01)
 
-    scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=0.98)
-    scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=0.98)
+    # Scheduler con decaimiento coseno para convergencia suave y prevención de sobreajuste
+    scheduler_g = torch.optim.lr_scheduler.CosineAnnealingLR(optim_g, T_max=args.epochs, eta_min=1e-5)
+    scheduler_d = torch.optim.lr_scheduler.CosineAnnealingLR(optim_d, T_max=args.epochs, eta_min=1e-5)
 
     start_epoch = 1
+    best_val_loss = float("inf")
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.resume and args.resume.exists():
@@ -456,6 +468,7 @@ def train(args):
         model.load_state_dict(ckpt["model_state_dict"])
         optim_g.load_state_dict(ckpt["optim_g"])
         start_epoch = ckpt.get("epoch", 1) + 1
+        best_val_loss = ckpt.get("val_loss_mel", float("inf"))
 
     print("\nIniciando bucle de finetuning...")
     for epoch in range(start_epoch, start_epoch + args.epochs):
@@ -481,7 +494,7 @@ def train(args):
             # 1. Entrenar Generador
             # ---------------------
             optim_g.zero_grad()
-            wav_slice_hat = model.decoder(z_slice).squeeze(1)  # [B, SEGMENT_SIZE]
+            wav_slice_hat = model.decoder(z_slice).squeeze(1)
 
             # Mel Reconstruction Loss sobre rebanadas
             mel_slice_real = mel_extractor(wav_slice_real)
@@ -521,9 +534,9 @@ def train(args):
             total_loss_mel += loss_mel.item()
 
             pbar.set_postfix({
-                "Loss_G": f"{loss_g.item():.3f}",
-                "Mel": f"{loss_mel.item():.3f}",
-                "Loss_D": f"{loss_d.item():.3f}",
+                "Loss_G": f"{loss_g.item():.2f}",
+                "Mel": f"{loss_mel.item():.2f}",
+                "Loss_D": f"{loss_d.item():.2f}",
             })
 
         scheduler_g.step()
@@ -532,7 +545,38 @@ def train(args):
         avg_g = total_loss_g / len(train_loader)
         avg_mel = total_loss_mel / len(train_loader)
         avg_d = total_loss_d / len(train_loader)
-        print(f"--> Época {epoch} Finalizada: Loss_G = {avg_g:.4f} | Mel_Loss = {avg_mel:.4f} | Loss_D = {avg_d:.4f}")
+
+        # -----------------------------
+        # 3. Validación Anti-Overfitting
+        # -----------------------------
+        model.eval()
+        val_mel_total = 0.0
+        with torch.no_grad():
+            for v_tokens, v_lengths, v_wavs, v_wlengths, _ in val_loader:
+                v_tokens, v_lengths, v_wavs = v_tokens.to(device), v_lengths.to(device), v_wavs.to(device)
+                v_mel = mel_extractor(v_wavs)
+                _, _, _, _, v_z = model(v_tokens, v_lengths, mel=v_mel)
+                v_wav_slice, v_z_slice = rand_slice_segments(v_wavs, v_z, segment_size=SEGMENT_SIZE)
+                v_wav_hat = model.decoder(v_z_slice).squeeze(1)
+                val_mel_total += F.l1_loss(mel_extractor(v_wav_hat), mel_extractor(v_wav_slice)).item() * 40.0
+        avg_val_mel = val_mel_total / max(1, len(val_loader))
+
+        print(f"--> Época {epoch} Finalizada | Train_Mel = {avg_mel:.4f} | Val_Mel = {avg_val_mel:.4f} | Loss_D = {avg_d:.4f}")
+
+        # Guardar mejor modelo según métrica de validación (Anti-Overfitting)
+        if avg_val_mel < best_val_loss:
+            best_val_loss = avg_val_mel
+            best_ckpt_path = args.output_dir / "piper_vits_best.pt"
+            torch.save({
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optim_g": optim_g.state_dict(),
+                "optim_d": optim_d.state_dict(),
+                "val_loss_mel": best_val_loss,
+                "loss_g": avg_g,
+                "loss_mel": avg_mel,
+            }, best_ckpt_path)
+            print(f"    [Mejor Modelo Guardado!]: {best_ckpt_path.name} (Val_Mel = {best_val_loss:.4f})")
 
         # Guardar Checkpoint periódico
         if epoch % args.save_step == 0 or epoch == (start_epoch + args.epochs - 1):
@@ -544,14 +588,23 @@ def train(args):
                 "optim_d": optim_d.state_dict(),
                 "loss_g": avg_g,
                 "loss_mel": avg_mel,
+                "val_loss_mel": avg_val_mel,
             }, ckpt_path)
             print(f"    [Checkpoint guardado]: {ckpt_path.name}")
 
     print("\n¡Finetuning completado exitosamente!")
 
-    # Exportación ONNX si se solicitó
+    # Exportación ONNX
     if args.export_onnx:
-        export_model_to_onnx(model, args.output_dir / "piper_vits_finetuned.onnx")
+        # Cargar los mejores pesos para exportar la versión óptima sin sobreajuste
+        best_ckpt = args.output_dir / "piper_vits_best.pt"
+        if best_ckpt.exists():
+            print(f"[ONNX] Cargando los mejores pesos validados desde {best_ckpt.name}...")
+            ckpt_data = torch.load(best_ckpt, map_location=device)
+            model.load_state_dict(ckpt_data["model_state_dict"])
+        
+        target_path = args.export_target if args.export_target else (args.output_dir / "piper_vits_finetuned.onnx")
+        export_model_to_onnx(model, target_path)
 
 
 def main():
