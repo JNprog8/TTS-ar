@@ -1,6 +1,16 @@
+import logging
+import math
+import os
+import random
 import torch
+from torch import nn
+from torch.nn import functional as F
 import torch.utils.data
+import numpy as np
+import librosa
 from librosa.filters import mel as librosa_mel_fn
+
+logger = logging.getLogger("openvoice.mel")
 
 MAX_WAV_VALUE = 32768.0
 
@@ -39,9 +49,9 @@ hann_window = {}
 
 def spectrogram_torch(y, n_fft, sampling_rate, hop_size, win_size, center=False):
     if torch.min(y) < -1.1:
-        print("min value is ", torch.min(y))
+        logger.debug("min value is %s", torch.min(y))
     if torch.max(y) > 1.1:
-        print("max value is ", torch.max(y))
+        logger.debug("max value is %s", torch.max(y))
 
     global hann_window
     dtype_device = str(y.dtype) + "_" + str(y.device)
@@ -137,9 +147,9 @@ def mel_spectrogram_torch(
     y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=False
 ):
     if torch.min(y) < -1.0:
-        print("min value is ", torch.min(y))
+        logger.debug("min value is %s", torch.min(y))
     if torch.max(y) > 1.0:
-        print("max value is ", torch.max(y))
+        logger.debug("max value is %s", torch.max(y))
 
     global mel_basis, hann_window
     dtype_device = str(y.dtype) + "_" + str(y.device)

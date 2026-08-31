@@ -1,10 +1,14 @@
-import torch
-import numpy as np
-import re
-import soundfile
-from openvoice import utils
-from openvoice import commons
+import logging
 import os
+import re
+import numpy as np
+import soundfile
+import torch
+
+from openvoice import commons
+from openvoice import utils
+
+logger = logging.getLogger("openvoice")
 try:
     from openvoice.text import text_to_sequence
 except ImportError:
@@ -37,8 +41,8 @@ class OpenVoiceBaseClass(object):
     def load_ckpt(self, ckpt_path):
         checkpoint_dict = torch.load(ckpt_path, map_location=torch.device(self.device))
         a, b = self.model.load_state_dict(checkpoint_dict['model'], strict=False)
-        print("Loaded checkpoint '{}'".format(ckpt_path))
-        print('missing/unexpected keys:', a, b)
+        logger.debug("Loaded checkpoint '%s'", ckpt_path)
+        logger.debug("missing/unexpected keys: %s, %s", a, b)
 
 
 class BaseSpeakerTTS(OpenVoiceBaseClass):
@@ -67,9 +71,7 @@ class BaseSpeakerTTS(OpenVoiceBaseClass):
     @staticmethod
     def split_sentences_into_pieces(text, language_str):
         texts = utils.split_sentence(text, language_str=language_str)
-        print(" > Text splitted to sentences.")
-        print('\n'.join(texts))
-        print(" > ===========================")
+        logger.debug("Text splitted to sentences: %s", texts)
         return texts
 
     def tts(self, text, output_path, speaker, language='English', speed=1.0):
@@ -204,7 +206,7 @@ class ToneColorConverter(OpenVoiceBaseClass):
         for n in range(n_repeat):
             trunck = audio[(coeff * n) * K: (coeff * n + 1) * K]
             if len(trunck) != K:
-                print('Audio too short, fail to add watermark')
+                logger.warning('Audio too short, fail to add watermark')
                 break
             message_npy = bits[n * 32: (n + 1) * 32]
             
@@ -223,7 +225,7 @@ class ToneColorConverter(OpenVoiceBaseClass):
         for n in range(n_repeat):
             trunck = audio[(coeff * n) * K: (coeff * n + 1) * K]
             if len(trunck) != K:
-                print('Audio too short, fail to detect watermark')
+                logger.warning('Audio too short, fail to detect watermark')
                 return 'Fail'
             with torch.no_grad():
                 signal = torch.FloatTensor(trunck).to(self.device).unsqueeze(0)

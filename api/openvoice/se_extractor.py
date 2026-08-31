@@ -1,3 +1,4 @@
+import logging
 import os
 import glob
 import torch
@@ -7,11 +8,15 @@ import base64
 from glob import glob
 import numpy as np
 from pydub import AudioSegment
-from faster_whisper import WhisperModel
-import hashlib
-import base64
-import librosa
-from whisper_timestamped.transcribe import get_audio_tensor, get_vad_segments
+try:
+    from faster_whisper import WhisperModel
+    from whisper_timestamped.transcribe import get_audio_tensor, get_vad_segments
+except ImportError:
+    WhisperModel = None
+    get_audio_tensor = None
+    get_vad_segments = None
+
+logger = logging.getLogger("openvoice.se_extractor")
 
 model_size = "medium"
 # Run on GPU with FP16
@@ -86,7 +91,7 @@ def split_audio_vad(audio_path, audio_name, target_dir, split_seconds=10.0):
     )
     segments = [(seg["start"], seg["end"]) for seg in segments]
     segments = [(float(s) / SAMPLE_RATE, float(e) / SAMPLE_RATE) for s,e in segments]
-    print(segments)
+    logger.debug("VAD segments: %s", segments)
     audio_active = AudioSegment.silent(duration=0)
     audio = AudioSegment.from_file(audio_path)
 
@@ -94,7 +99,7 @@ def split_audio_vad(audio_path, audio_name, target_dir, split_seconds=10.0):
         audio_active += audio[int( start_time * 1000) : int(end_time * 1000)]
     
     audio_dur = audio_active.duration_seconds
-    print(f'after vad: dur = {audio_dur}')
+    logger.debug("after vad: dur = %s", audio_dur)
     target_folder = os.path.join(target_dir, audio_name)
     wavs_folder = os.path.join(target_folder, 'wavs')
     os.makedirs(wavs_folder, exist_ok=True)
@@ -129,7 +134,7 @@ def hash_numpy_array(audio_path):
 def get_se(audio_path, vc_model, target_dir='processed', vad=True):
     device = vc_model.device
     version = vc_model.version
-    print("OpenVoice version:", version)
+    logger.debug("OpenVoice version: %s", version)
 
     audio_name = f"{os.path.basename(audio_path).rsplit('.', 1)[0]}_{version}_{hash_numpy_array(audio_path)}"
     se_path = os.path.join(target_dir, audio_name, 'se.pth')

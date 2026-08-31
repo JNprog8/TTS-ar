@@ -1,11 +1,17 @@
-"""API REST de TTS argentino para simulación de pacientes médicos (Piper TTS / VITS)."""
+"""API REST de TTS argentino para simulación de pacientes médicos (Piper TTS / VITS / OpenVoice)."""
 import io
+import logging
+from pathlib import Path
+from typing import List
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
-from config import MAX_TEXT_LENGTH
+from config import API_DIR, MAX_TEXT_LENGTH
 from schemas import EmotionType, ErrorResponse, TTSRequest, VoiceInfo
 from tts_engine import engine
+
+logger = logging.getLogger("api")
 
 app = FastAPI(
     title="TTS Argentino — Simulador de Paciente Médico",
@@ -13,439 +19,25 @@ app = FastAPI(
     version="2.0",
 )
 
+TEMPLATE_PATH = API_DIR / "templates" / "index.html"
+
 
 @app.get("/favicon.ico", include_in_schema=False)
-def favicon():
+def favicon() -> Response:
+    """Evita registros 404 de favicon en navegadores."""
     return Response(status_code=204)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def index_demo():
+def index_demo() -> HTMLResponse:
     """Reproductor y probador web interactivo con selector de paciente y estados emocionales."""
-    return """
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TTS Argentino — Simulador de Paciente</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg: #0b0f19;
-      --card-bg: rgba(22, 30, 49, 0.85);
-      --card-border: rgba(99, 102, 241, 0.2);
-      --primary: #6366f1;
-      --primary-hover: #4f46e5;
-      --accent: #38bdf8;
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --input-bg: #0f172a;
-      --input-border: #334155;
-      --pain-color: #f43f5e;
-      --worried-color: #f59e0b;
-      --annoyed-color: #ec4899;
-      --neutral-color: #10b981;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Inter', -apple-system, sans-serif;
-      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg) 75%);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 2rem 1rem;
-    }
-    .container {
-      width: 100%;
-      max-width: 720px;
-      background: var(--card-bg);
-      backdrop-filter: blur(16px);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 2.5rem;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
-    }
-    h1 {
-      font-family: 'Outfit', sans-serif;
-      font-size: 2rem;
-      font-weight: 700;
-      background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 0.3rem;
-    }
-    p.subtitle {
-      color: var(--text-muted);
-      font-size: 0.95rem;
-      margin-bottom: 1.8rem;
-    }
-    .form-group {
-      margin-bottom: 1.3rem;
-    }
-    label {
-      display: block;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 0.4rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    textarea, select, input[type="range"] {
-      width: 100%;
-      background: var(--input-bg);
-      border: 1px solid var(--input-border);
-      border-radius: 12px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 1rem;
-      padding: 0.85rem 1rem;
-      transition: all 0.2s ease;
-    }
-    textarea:focus, select:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
-    }
-    textarea {
-      min-height: 90px;
-      resize: vertical;
-    }
-    .emotion-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 0.6rem;
-      margin-bottom: 0.5rem;
-    }
-    .emotion-btn {
-      background: var(--input-bg);
-      border: 1px solid var(--input-border);
-      border-radius: 10px;
-      padding: 0.7rem 0.5rem;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.3rem;
-      transition: all 0.15s ease;
-    }
-    .emotion-btn.active[data-emotion="neutral"] { background: rgba(16, 185, 129, 0.15); border-color: var(--neutral-color); color: #fff; }
-    .emotion-btn.active[data-emotion="pain"] { background: rgba(244, 63, 94, 0.15); border-color: var(--pain-color); color: #fff; }
-    .emotion-btn.active[data-emotion="worried"] { background: rgba(245, 158, 11, 0.15); border-color: var(--worried-color); color: #fff; }
-    .emotion-btn.active[data-emotion="annoyed"] { background: rgba(236, 72, 153, 0.15); border-color: var(--annoyed-color); color: #fff; }
-    .emotion-icon { font-size: 1.3rem; }
-    .sample-btn-link {
-      background: none;
-      border: none;
-      color: var(--accent);
-      font-size: 0.8rem;
-      cursor: pointer;
-      padding: 0.2rem 0;
-      text-decoration: underline;
-      display: inline-block;
-      margin-bottom: 0.8rem;
-    }
-    .slider-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.5rem;
-    }
-    .slider-header {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 0.4rem;
-    }
-    .slider-val {
-      color: var(--accent);
-      font-weight: 600;
-    }
-    .btn {
-      width: 100%;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
-      color: #fff;
-      font-family: 'Outfit', sans-serif;
-      font-size: 1.1rem;
-      font-weight: 600;
-      border: none;
-      border-radius: 12px;
-      padding: 0.9rem;
-      cursor: pointer;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 0.5rem;
-      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
-    }
-    .btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
-    }
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-    .player-card {
-      margin-top: 1.5rem;
-      background: rgba(15, 23, 42, 0.6);
-      border: 1px solid rgba(56, 189, 248, 0.2);
-      border-radius: 14px;
-      padding: 1.2rem;
-      display: none;
-    }
-    audio {
-      width: 100%;
-      margin-top: 0.75rem;
-      border-radius: 8px;
-    }
-    .spinner {
-      display: none;
-      width: 20px;
-      height: 20px;
-      border: 3px solid rgba(255, 255, 255, 0.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .status-msg {
-      margin-top: 0.8rem;
-      font-size: 0.9rem;
-      text-align: center;
-      color: var(--text-muted);
-    }
-    .footer-links {
-      margin-top: 1.5rem;
-      text-align: center;
-      font-size: 0.85rem;
-    }
-    .footer-links a {
-      color: var(--accent);
-      text-decoration: none;
-      margin: 0 0.5rem;
-    }
-    .footer-links a:hover { text-decoration: underline; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>TTS Argentino</h1>
-    <p class="subtitle">Simulador de Paciente Virtual — Control de Demografía y Emociones</p>
-
-    <form id="ttsForm">
-      <div class="form-group">
-        <label for="voiceSelect">Arquetipo de Paciente (Demografía)</label>
-        <select id="voiceSelect"></select>
-      </div>
-
-      <div class="form-group">
-        <label>Estado Emocional / Síntoma del Paciente</label>
-        <div class="emotion-grid">
-          <button type="button" class="emotion-btn active" data-emotion="neutral">
-            <span class="emotion-icon">😐</span>
-            <span>Neutral</span>
-          </button>
-          <button type="button" class="emotion-btn" data-emotion="pain">
-            <span class="emotion-icon">😣</span>
-            <span>Adolorido</span>
-          </button>
-          <button type="button" class="emotion-btn" data-emotion="worried">
-            <span class="emotion-icon">😟</span>
-            <span>Preocupado</span>
-          </button>
-          <button type="button" class="emotion-btn" data-emotion="annoyed">
-            <span class="emotion-icon">😠</span>
-            <span>Molesto</span>
-          </button>
-        </div>
-        <button type="button" id="loadSampleBtn" class="sample-btn-link">Cargar frase típica de este síntoma</button>
-      </div>
-
-      <div class="form-group">
-        <label for="textInput">Respuesta del Paciente</label>
-        <textarea id="textInput" placeholder="Escribí lo que dice el paciente...">Buenas tardes doctor, vengo para el control de rutina que teníamos programado.</textarea>
-      </div>
-
-      <div class="form-group slider-row">
-        <div>
-          <div class="slider-header">
-            <label for="speedSlider">Velocidad</label>
-            <span class="slider-val" id="speedVal">1.00x</span>
-          </div>
-          <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.05" value="1.0">
-        </div>
-        <div>
-          <div class="slider-header">
-            <label for="styleSlider">Intensidad</label>
-            <span class="slider-val" id="styleVal">1.00</span>
-          </div>
-          <input type="range" id="styleSlider" min="0.2" max="1.5" step="0.05" value="1.0">
-        </div>
-      </div>
-
-      <button type="submit" id="submitBtn" class="btn">
-        <span class="spinner" id="spinner"></span>
-        <span id="btnText">Sintetizar Voz del Paciente</span>
-      </button>
-    </form>
-
-    <div id="playerCard" class="player-card">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-weight:600; color:var(--accent);">Audio Sintetizado:</span>
-        <span id="durationInfo" style="font-size:0.85rem; color:var(--text-muted);"></span>
-      </div>
-      <audio id="audioPlayer" controls autoplay></audio>
-    </div>
-
-    <div id="statusMsg" class="status-msg"></div>
-
-    <div class="footer-links">
-      <a href="/docs" target="_blank">📖 Documentación Swagger (API Docs)</a> • 
-      <a href="/audio/voices" target="_blank">📋 JSON Arquetipos de Pacientes</a>
-    </div>
-  </div>
-
-  <script>
-    const voiceSelect = document.getElementById('voiceSelect');
-    const textInput = document.getElementById('textInput');
-    const speedSlider = document.getElementById('speedSlider');
-    const speedVal = document.getElementById('speedVal');
-    const styleSlider = document.getElementById('styleSlider');
-    const styleVal = document.getElementById('styleVal');
-    const submitBtn = document.getElementById('submitBtn');
-    const btnText = document.getElementById('btnText');
-    const spinner = document.getElementById('spinner');
-    const playerCard = document.getElementById('playerCard');
-    const audioPlayer = document.getElementById('audioPlayer');
-    const statusMsg = document.getElementById('statusMsg');
-    const loadSampleBtn = document.getElementById('loadSampleBtn');
-    let currentEmotion = 'neutral';
-
-    const samplePhrases = {
-      neutral: "Buenas tardes doctor, vengo para el control de rutina que teníamos programado.",
-      pain: "Ay doctor, no aguanto más el dolor en el pecho, me cuesta respirar.",
-      worried: "Doctor, dígame la verdad, ¿es algo grave? Estoy muy asustada por los resultados.",
-      annoyed: "Hace dos horas que estoy esperando acá en la guardia y nadie me atiende."
-    };
-
-    speedSlider.addEventListener('input', (e) => speedVal.textContent = parseFloat(e.target.value).toFixed(2) + 'x');
-    styleSlider.addEventListener('input', (e) => styleVal.textContent = parseFloat(e.target.value).toFixed(2));
-
-    document.querySelectorAll('.emotion-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentEmotion = btn.dataset.emotion;
-      });
-    });
-
-    loadSampleBtn.addEventListener('click', () => {
-      if (samplePhrases[currentEmotion]) {
-        textInput.value = samplePhrases[currentEmotion];
-      }
-    });
-
-    async function loadVoices() {
-      try {
-        const res = await fetch('/audio/voices');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const voices = await res.json();
-        voiceSelect.innerHTML = voices.map(v => 
-          `<option value="${v.id}">${v.description || v.name}</option>`
-        ).join('');
-      } catch (err) {
-        voiceSelect.innerHTML = `
-          <option value="0">Paciente Femenina Adulta (Daniela)</option>
-          <option value="1">Paciente Masculino Adulto (Martín)</option>
-          <option value="2">Paciente Femenina Anciana (Marta)</option>
-          <option value="3">Paciente Masculino Anciano (Roberto)</option>
-          <option value="4">Paciente Femenina Joven (Sofía)</option>
-          <option value="5">Paciente Masculino Joven (Lucas)</option>
-        `;
-      }
-    }
-    loadVoices();
-
-    document.getElementById('ttsForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const text = textInput.value.trim();
-      if (!text) {
-        statusMsg.textContent = 'Por favor escribí un texto para sintetizar.';
-        return;
-      }
-
-      submitBtn.disabled = true;
-      spinner.style.display = 'inline-block';
-      btnText.textContent = 'Sintetizando...';
-      statusMsg.textContent = 'Generando respuesta del paciente en tiempo real...';
-
-      const voiceId = parseInt(voiceSelect.value, 10);
-      const payload = {
-        id: isNaN(voiceId) ? 0 : voiceId,
-        text: text,
-        speed: parseFloat(speedSlider.value) || 1.0,
-        style_strength: parseFloat(styleSlider.value) || 1.0,
-        emotion: currentEmotion
-      };
-
-      try {
-        const startTime = performance.now();
-        const response = await fetch('/audio/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          let errMsg = 'Error en la síntesis';
-          try {
-            const errorData = await response.json();
-            if (typeof errorData.detail === 'string') {
-              errMsg = errorData.detail;
-            } else if (Array.isArray(errorData.detail)) {
-              errMsg = errorData.detail.map(d => d.msg || JSON.stringify(d)).join(', ');
-            } else if (errorData.detail) {
-              errMsg = JSON.stringify(errorData.detail);
-            }
-          } catch (jsonErr) {
-            errMsg = `Error HTTP ${response.status}: ${response.statusText}`;
-          }
-          throw new Error(errMsg);
-        }
-
-        const blob = await response.blob();
-        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-        const audioUrl = URL.createObjectURL(blob);
-
-        audioPlayer.src = audioUrl;
-        playerCard.style.display = 'block';
-        audioPlayer.play();
-        statusMsg.textContent = `¡Audio sintetizado en ${elapsed}s!`;
-      } catch (err) {
-        statusMsg.textContent = 'Error: ' + err.message;
-      } finally {
-        submitBtn.disabled = false;
-        spinner.style.display = 'none';
-        btnText.textContent = 'Sintetizar Voz del Paciente';
-      }
-    });
-  </script>
-</body>
-</html>
-"""
+    if TEMPLATE_PATH.exists():
+        return HTMLResponse(content=TEMPLATE_PATH.read_text(encoding="utf-8"))
+    return HTMLResponse(content="<h1>TTS Argentino API</h1><p>Visite <a href='/docs'>/docs</a> para la documentación OpenAPI.</p>")
 
 
-@app.get("/audio/voices", response_model=list[VoiceInfo])
-def list_voices():
+@app.get("/audio/voices", response_model=List[VoiceInfo])
+def list_voices() -> List[VoiceInfo]:
     """Catálogo de arquetipos de pacientes (género, edad y descripción) para selección por el LLM."""
     catalog = engine.list_voices()
     return [
@@ -466,7 +58,7 @@ def _synthesize_audio_response(
     style_strength: float,
     emotion: str,
     pitch_shift: float | None = None,
-):
+) -> StreamingResponse:
     """Lógica común de validación y síntesis para GET y POST."""
     if not text.strip():
         raise HTTPException(status_code=400, detail="El campo 'text' no puede estar vacío")
@@ -507,7 +99,7 @@ def _synthesize_audio_response(
         400: {"model": ErrorResponse, "description": "Parámetros inválidos"},
     },
 )
-def text_to_speech_post(request: TTSRequest):
+def text_to_speech_post(request: TTSRequest) -> StreamingResponse:
     """Contrato principal de integración para el LLM y pipeline STT/Whisper."""
     return _synthesize_audio_response(
         voice_id=request.id,
@@ -537,7 +129,7 @@ def text_to_speech_get(
     style_strength: float = 1.0,
     emotion: EmotionType = EmotionType.NEUTRAL,
     pitch_shift: float = 0.0,
-):
+) -> StreamingResponse:
     """Endpoint GET para pruebas y reproducción directa en navegador."""
     return _synthesize_audio_response(
         voice_id=id,

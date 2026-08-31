@@ -17,8 +17,11 @@ género/tono, `POST /audio/tts` → audio.
 ## Estructura
 
 - `finetuning/` — preparación de datos y notebook de entrenamiento Piper VITS (`prepare_dataset_piper.py`, `train_piper.py`, `finetune_piper_ar.ipynb`).
-- `voices/` — modelo ONNX (`piper_ar.onnx`), configuración JSON (`piper_ar.onnx.json`) y catálogo de voces (`voices_catalog.csv`).
+- `voices/` — modelos ONNX, configuraciones JSON, convertidor OpenVoice y catálogo (`voices_catalog.csv`).
 - `api/` — servicio FastAPI (`config.py`, `schemas.py`, `tts_engine.py`, `main.py`).
+- `rules/` — directivas y modelos de comportamiento para agentes autónomos:
+  - `qa_model.md` — modelo de verificación, testing y prevención de regresiones.
+  - `security_integrity.md` — modelo de AppSec, integridad de modelos y privacidad.
 
 ## Reglas críticas (no negociables sin confirmación explícita del usuario)
 

@@ -1,3 +1,4 @@
+import logging
 import math
 import torch
 from torch import nn
@@ -6,6 +7,8 @@ from torch.nn import functional as F
 from openvoice import commons
 from openvoice import modules
 from openvoice import attentions
+
+logger = logging.getLogger("openvoice.models")
 
 from torch.nn import Conv1d, ConvTranspose1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
@@ -291,7 +294,7 @@ class Generator(torch.nn.Module):
         return x
 
     def remove_weight_norm(self):
-        print("Removing weight norm...")
+        logger.debug("Removing weight norm...")
         for layer in self.ups:
             remove_weight_norm(layer)
         for layer in self.resblocks:
