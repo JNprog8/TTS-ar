@@ -16,10 +16,10 @@ MODELS = [
         "json_target": VOICES_DIR / "piper_ar.onnx.json",
     },
     {
-        "name": "Voz Masculina (Davefx - es_ES medium)",
-        "onnx_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx",
+        "name": "Voz Masculina (Claude - es_MX high / Latino)",
+        "onnx_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx",
         "onnx_target": VOICES_DIR / "piper_male.onnx",
-        "json_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json",
+        "json_url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx.json",
         "json_target": VOICES_DIR / "piper_male.onnx.json",
     },
 ]

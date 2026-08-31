@@ -1,7 +1,7 @@
 """API REST de TTS argentino para simulación de pacientes médicos (Piper TTS / VITS)."""
 import io
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from config import MAX_TEXT_LENGTH
 from schemas import EmotionType, ErrorResponse, TTSRequest, VoiceInfo
@@ -12,6 +12,11 @@ app = FastAPI(
     description="API de síntesis de voz en español argentino para pacientes virtuales (géneros, grupos etarios y estados emocionales)",
     version="2.0",
 )
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

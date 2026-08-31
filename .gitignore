@@ -23,11 +23,13 @@ ckpts/
 runs/
 wandb/
 
-# Binary voice models and weights (Piper ONNX / F5-TTS)
+# Binary voice models and weights (Piper ONNX / F5-TTS / Converter)
 voices/*.onnx
 voices/*.safetensors
 voices/*.pt
 voices/*.wav
+voices/converter/*.pth
+voices/embeddings/
 !voices/.gitkeep
 !voices/voices_catalog.csv
 !voices/download_voices.py

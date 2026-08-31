@@ -350,8 +350,9 @@ def parse_args():
     parser.add_argument("--save_step", type=int, default=5, help="Guardar checkpoint cada N épocas")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Dispositivo (cuda / cpu)")
     parser.add_argument("--export_onnx", action="store_true", default=True, help="Exportar a ONNX al finalizar")
+    parser.add_argument("--export_only", action="store_true", default=False, help="Solo exportar el checkpoint especificado en --resume a ONNX sin entrenar")
     parser.add_argument("--export_target", type=Path, default=None, help="Ruta personalizada para exportar el modelo ONNX final")
-    parser.add_argument("--resume", type=Path, default=None, help="Ruta a checkpoint para reanudar")
+    parser.add_argument("--resume", type=Path, default=None, help="Ruta a checkpoint para reanudar o exportar")
     return parser.parse_args()
 
 
@@ -368,7 +369,12 @@ def export_model_to_onnx(model: nn.Module, onnx_out_path: Path):
 
         def forward(self, input_ids: torch.Tensor, input_lengths: torch.Tensor, scales: torch.Tensor):
             noise_scale = scales[0]
+            batch_size, max_len = input_ids.shape
+            seq_range = torch.arange(max_len, dtype=torch.long, device=input_ids.device).unsqueeze(0)
+            mask = (seq_range < input_lengths.unsqueeze(1)).float().unsqueeze(1)
             stats_mean, stats_log_std, _ = self.vits.text_encoder(input_ids, input_lengths)
+            stats_mean = stats_mean * mask
+            stats_log_std = stats_log_std * mask
             z = stats_mean + torch.randn_like(stats_mean) * torch.exp(stats_log_std) * noise_scale
             audio = self.vits.decoder(z)
             return audio
@@ -389,7 +395,7 @@ def export_model_to_onnx(model: nn.Module, onnx_out_path: Path):
             input_names=["input", "input_lengths", "scales"],
             output_names=["output"],
             dynamic_axes={
-                "input": {0: "batch_size", 1: "num_phonemes"},
+                "input": {0: "batch_size", 1: "phonemes"},
                 "input_lengths": {0: "batch_size"},
                 "output": {0: "batch_size", 2: "audio_samples"},
             },
@@ -398,11 +404,24 @@ def export_model_to_onnx(model: nn.Module, onnx_out_path: Path):
         )
         print(f"[OK] ONNX exportado exitosamente ({onnx_out_path.stat().st_size / (1024*1024):.2f} MB)")
     except (ImportError, Exception) as e:
-        print(f"[AVISO] Para exportar a formato ONNX se requiere el paquete 'onnx'. Error: {e}")
+        print(f"[AVISO] Error exportando a formato ONNX: {e}")
         print(f"        El checkpoint PyTorch fue guardado correctamente en {onnx_out_path.parent}.")
 
 
 def train(args):
+    if args.export_only:
+        if not args.resume or not args.resume.exists():
+            print(f"[ERROR] Se requiere --resume apuntando a un checkpoint existente para exportar.")
+            return
+        device = torch.device(args.device)
+        model = PiperVITSModel(num_symbols=NUM_SYMBOLS).to(device)
+        print(f"[ONNX] Cargando checkpoint: {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+        target_path = args.export_target if args.export_target else (args.output_dir / "piper_vits_finetuned.onnx")
+        export_model_to_onnx(model, target_path)
+        return
+
     print("=" * 65)
     print(" Piper TTS (VITS) Finetuning — Español Argentino (es_AR)")
     print("=" * 65)
