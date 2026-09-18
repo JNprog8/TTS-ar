@@ -15,10 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Instalar PyTorch CPU
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
 # Instalar dependencias de Python
 COPY api/requirements.txt ./api/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r ./api/requirements.txt
+RUN pip install --no-cache-dir -r ./api/requirements.txt
 
 # Copiar código fuente y configuración de voces
 COPY api/ ./api/
