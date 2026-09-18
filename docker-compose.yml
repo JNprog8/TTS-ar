@@ -1,0 +1,37 @@
+﻿name: tts-ar
+
+services:
+  tts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: medsim-tts:local
+    container_name: medsim-tts
+    restart: unless-stopped
+    ports:
+      # Puerto accesible desde el host para pruebas y frontend local
+      - "${TTS_HOST_PORT:-8001}:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=8000
+    volumes:
+      - voices_data:/app/voices/embeddings
+    networks:
+      medsim_net:
+        aliases:
+          # Alias 'tts' para que MedSim (http://tts:8000) lo resuelva internamente
+          - tts
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/audio/voices || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  voices_data:
+
+networks:
+  medsim_net:
+    external: true
+    name: ${MEDSIM_NETWORK:-medsim_medsim_net}
